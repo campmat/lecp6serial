@@ -13,7 +13,7 @@ A Python library for controlling SMC LECP6 actuators via serial communication.
 Clone the repository and install the package:
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/campmat/lecp6serial.git
 cd lecp6serial
 pip install .
 ```
