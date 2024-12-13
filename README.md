@@ -27,6 +27,19 @@ lecp6 = LECP6Serial(port="COM4")
 lecp6.move_to(position=150)
 
 ```
+Object *LECP6Serial* parameters:
+
+port, bautrate = 38400, timeout = 0.1, CTRL_ID = 0x01
+
+|Parameter |Type   |Default |Description                                 |
+|----------|-------|--------|--------------------------------------------|
+|`port`    |`str`  |Required|The serial port to connect to (e.g., "COM4")|
+|`baudrate`|`int`  |`38400` |Baud rate for the serial connection.        |
+|`timeout` |`float`|`0.1`   |Timeout in seconds for serial communication.|
+|`CTRL_ID` |`int`  |`1`     |Controller ID for the actuator.             |
+
+
+Function *move_to* parameters:
 
 | Parameter        | Type    | Default | Description                                                                              |
 |------------------|---------|---------|------------------------------------------------------------------------------------------|

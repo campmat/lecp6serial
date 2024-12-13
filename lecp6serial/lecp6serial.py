@@ -51,7 +51,7 @@ def calculate_crc16(data):
     return crc
 
 class LECP6Serial:
-    def __init__(self, port, bautrate = 38400, timeout = 0.1, CTRL_ID = 0x01):
+    def __init__(self, port : str, baudrate : int = 38400, timeout : float = 0.1, CTRL_ID : int = 0x01):
         self.CTRL_ID = CTRL_ID
 
         #commands
@@ -103,7 +103,7 @@ class LECP6Serial:
         self.ser = None
 
         try:
-            self.ser = serial.Serial(port=port, baudrate=bautrate, timeout=timeout)
+            self.ser = serial.Serial(port=port, baudrate=baudrate, timeout=timeout)
         except serial.SerialException as e:
             print(f"Failed to open serial port {port}: {e}")
             return
