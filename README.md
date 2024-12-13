@@ -23,7 +23,7 @@ pip install .
 ```python
 from lecp6serial import LECP6Serial
 
-lecp6 = LECP6Serial(com="COM4")
+lecp6 = LECP6Serial(port="COM4")
 lecp6.move_to(position=150)
 
 ```
