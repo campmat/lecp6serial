@@ -37,6 +37,9 @@ class LECP6CMD(Enum):
     READ_INPUTS = "READ INPUTS"
     READ_OUTPUTS = "READ OUTPUTS"
     SEND_DATA = "SEND DATA"
+    READ_POSITION = "READ POSITION"
+    READ_SPEED = "READ SPEED"
+    READ_TARGET = "READ TARGET"
 
 def calculate_crc16(data):
     """
@@ -87,6 +90,9 @@ class LECP6Serial:
         """
         self.CTRL_ID = CTRL_ID
 
+        self.position_log = []
+        self.log_positions = False
+
         #commands
         self.commands = {}
         
@@ -120,6 +126,9 @@ class LECP6Serial:
 
 
         self.commands["SEND DATA"] =                [CTRL_ID, WD, 0x91, 0x02, 0x00, 0x10, 0x20]
+        self.commands["READ POSITION"] =            [CTRL_ID, RD, 0x90, 0x00, 0x00, 0x02]
+        self.commands["READ SPEED"] =               [CTRL_ID, RD, 0x90, 0x02, 0x00, 0x01]
+        self.commands["READ TARGET"] =              [CTRL_ID, RD, 0x90, 0x04, 0x00, 0x02]
 
         self.commands_op = {}
 
@@ -216,7 +225,8 @@ class LECP6Serial:
     def move_to(self, movement_mode: int = 1, speed: int = 16, position: float = 0.00,
                       acceleration : int = 3000, deceleration : int = 3000,
                       pushing_force: int = 0, trigger_level: int = 0, pushing_speed: int = 16,
-                      moving_force: int = 100, area1: float = 0.00, area2: float = 0.00, in_position: float = 0.00):
+                      moving_force: int = 100, area1: float = 0.00, area2: float = 0.00, in_position: float = 0.00,
+                      log : bool = False):
         """
         Move the actuator to the specified position with the given parameters.
             
@@ -233,15 +243,26 @@ class LECP6Serial:
             area1 (float): Area output end 1 in mm.
             area2 (float): Area output end 2 in mm.
             in_position (float): In-position tolerance in mm.
+            log (bool): Whether to log positions and timestamps during movement.
         """
-        
+        if log:
+            self.start_logging()
+
         DATA = self.get_step_data(movement_mode, speed, position, acceleration, deceleration,
                                   pushing_force, trigger_level, pushing_speed, moving_force, area1, area2, in_position)
 
         self.send_cmd("SEND DATA", DATA)
         self.send_cmd("START")
 
-        self.wait_till_X_set(1, X4B)
+        if log:
+            moving_log = self.monitor_position_during_movement()
+        else:
+            self.wait_till_X_set(1, X4B)
+
+        if log:
+            self.stop_logging()
+
+        return moving_log
 
     def get_step_data(self, movement_mode: int = 1, speed: int = 16, position: float = 0.00,
                       acceleration : int = 3000, deceleration : int = 3000,
@@ -338,6 +359,69 @@ class LECP6Serial:
 
             return LECP6Response.VALID, [CTRL_ID, FUNC, START, DATA, CRC16]
     
+    def get_current_position(self):
+        """
+        Retrieve the current position of the actuator.
+
+        Sends the "READ POSITION" command to the controller and processes the response
+        to determine the current position in millimeters.
+
+        Returns:
+            float: The current position of the actuator in millimeters.
+        
+        Raises:
+            ValueError: If the response is invalid or cannot be parsed.
+        """
+        response = self.send_cmd("READ POSITION")
+        response_type, data = self.process_response("READ POSITION", response)
+
+        if response_type == LECP6Response.VALID:
+            position_bytes = data[3]
+            # Convert 4 bytes of position data to an integer
+            position_raw = (position_bytes[0] << 24) | (position_bytes[1] << 16) | (position_bytes[2] << 8) | position_bytes[3]
+            # Convert position to mm (from 0.01 mm resolution)
+            return position_raw / 100.0
+        else:
+            raise ValueError(f"Invalid response: {response_type}, {data}")
+
+
+    def monitor_position_during_movement(self):
+        """
+        Monitor the actuator's position during movement.
+
+        Logs the position and timestamp if logging is enabled.
+
+        Returns:
+            list of tuple: The position log as (timestamp, position) pairs.
+        """
+        print("Monitoring position...")
+        while True:
+            try:
+                current_position = self.get_current_position()
+            except ValueError as e:
+                print(f"Error reading position: {e}")
+                break
+
+            # Log position and timestamp if logging is enabled
+            self.position_log.append((time.time(), current_position))
+
+            # Check if the actuator has reached the target position
+            response = self.send_cmd("READ INPUTS")
+            response_type, data = self.process_response("READ INPUTS", response)
+
+            if response_type == LECP6Response.VALID:
+                reg_bytes = data[3]
+                if reg_bytes[1] & X4B:  # Check the INP (In Position) flag
+                    break
+            else:
+                print("Error checking inputs:", response_type, data)
+
+            time.sleep(0.1)  # Adjust polling interval as needed
+
+        return self.position_log
+
+
+
     def wait_till_X_set(self, byte_idx, bit, set_bit = True):
         """
         Wait until a specific input bit (X) is set or cleared.
@@ -370,6 +454,22 @@ class LECP6Serial:
         if DEBUG_LECP6:
             print("")
 
+    def start_logging(self):
+        """
+        Enable logging of positions and timestamps during movement.
+        """
+        self.log_positions = True
+        self.position_log = []  # Reset log
+
+    def stop_logging(self):
+        """
+        Disable logging and return the recorded log of positions and timestamps.
+
+        Returns:
+            list of tuple: List of (timestamp, position) pairs.
+        """
+        self.log_positions = False
+        return self.position_log
 
     def __del__(self):
         self.close()
