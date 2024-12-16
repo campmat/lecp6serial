@@ -39,6 +39,26 @@ class LECP6CMD(Enum):
     SEND_DATA = "SEND DATA"
 
 def calculate_crc16(data):
+    """
+    Calculate the CRC-16 checksum for a given data array.
+
+    This function computes the Cyclic Redundancy Check (CRC-16) value using
+    the Modbus polynomial 0xA001. It ensures data integrity during communication
+    by detecting errors in transmitted data.
+
+    Parameters:
+        data (iterable of int): A sequence of bytes (values between 0 and 255) for which
+                                the CRC-16 checksum is calculated.
+
+    Returns:
+        int: The computed CRC-16 checksum as a 16-bit integer.
+
+    Example:
+        >>> data = [0x01, 0x03, 0x00, 0x00, 0x00, 0x0A]
+        >>> calculate_crc16(data)
+        50651  # Equivalent to 0xC5DB
+    """
+         
     crc = 0xFFFF
     for pos in data:
         crc ^= pos
@@ -50,8 +70,21 @@ def calculate_crc16(data):
                 crc >>= 1
     return crc
 
+
 class LECP6Serial:
     def __init__(self, port : str, baudrate : int = 38400, timeout : float = 0.1, CTRL_ID : int = 0x01):
+        """
+        A class to manage serial communication with the LECP6 SMC actuator controller.
+
+        This class provides methods for sending commands, moving the actuator to a target
+        position, and monitoring status signals via serial communication.
+
+        Parameters:
+            port (str): The name of the serial port (e.g., "COM4").
+            baudrate (int): The baud rate for serial communication (default: 38400).
+            timeout (float): Timeout in seconds for serial operations (default: 0.1).
+            CTRL_ID (int): Controller ID used in communication (default: 0x01).
+        """
         self.CTRL_ID = CTRL_ID
 
         #commands
@@ -136,6 +169,17 @@ class LECP6Serial:
 
 
     def send_cmd(self, cmd_name, data = None):
+        """
+        Send a command to the controller over the serial interface.
+
+        Parameters:
+            cmd_name (str or LECP6CMD): The name of the command to send.
+            data (list of int, optional): Additional data to send with the "SEND DATA" command.
+
+        Returns:
+            str: The response received from the controller as a hexadecimal string.
+        """
+
         if isinstance(cmd_name, LECP6CMD):
             cmd_name = cmd_name.value
 
@@ -174,20 +218,21 @@ class LECP6Serial:
                       pushing_force: int = 0, trigger_level: int = 0, pushing_speed: int = 16,
                       moving_force: int = 100, area1: float = 0.00, area2: float = 0.00, in_position: float = 0.00):
         """
-            Moves actuator to position with arguments:
-
-            movement_move (int): 1 - absolute, 2 - relative
-            speed (int): speed in mm/s [16 - 500]
-            position (float): target position in mm
-            acceleration (int): acceleration in mm/s^2
-            deceleration (int): deceleration in mm/s^2
-            pushing_force (int): pushing force in % [0 - 100], 0 for positioning
-            trigger_level (int): trigger level in % [0 - 100]
-            pushing_speed (int): pushing speed in mm/s
-            moving_force (int): moving force in % [0 - 300]
-            area1 (float): area output end 1 in mm
-            area2 (float): area output end 2 in mm
-            in_position (float): in position in mm
+        Move the actuator to the specified position with the given parameters.
+            
+        Parameters:
+            movement_mode (int): Movement mode (`1` for absolute, `2` for relative).
+            speed (int): Speed in mm/s (valid range: 16-500).
+            position (float): Target position in mm.
+            acceleration (int): Acceleration in mm/s².
+            deceleration (int): Deceleration in mm/s².
+            pushing_force (int): Pushing force in % (0-100). Use 0 for positioning.
+            trigger_level (int): Trigger level in % (0-100).
+            pushing_speed (int): Pushing speed in mm/s.
+            moving_force (int): Moving force in % (0-300).
+            area1 (float): Area output end 1 in mm.
+            area2 (float): Area output end 2 in mm.
+            in_position (float): In-position tolerance in mm.
         """
         
         DATA = self.get_step_data(movement_mode, speed, position, acceleration, deceleration,
@@ -203,20 +248,24 @@ class LECP6Serial:
                       pushing_force: int = 0, trigger_level: int = 0, pushing_speed: int = 16,
                       moving_force: int = 100, area1: float = 0.00, area2: float = 0.00, in_position: float = 0.00):
         """
-            Generates data to send with command for writing data.
+        Generate data to send with the "SEND DATA" command for actuator movement.
 
-            movement_move (int): 1 - absolute, 2 - relative
-            speed (int): speed in mm/s [16 - 500]
-            position (float): target position in mm
-            acceleration (int): acceleration in mm/s^2
-            deceleration (int): deceleration in mm/s^2
-            pushing_force (int): pushing force in % [0 - 100], 0 for positioning
-            trigger_level (int): trigger level in % [0 - 100]
-            pushing_speed (int): pushing speed in mm/s
-            moving_force (int): moving force in % [0 - 300]
-            area1 (float): area output end 1 in mm
-            area2 (float): area output end 2 in mm
-            in_position (float): in position in mm
+        Parameters:
+            movement_mode (int): Movement mode (`1` for absolute, `2` for relative).
+            speed (int): Speed in mm/s (valid range: 16-500).
+            position (float): Target position in mm.
+            acceleration (int): Acceleration in mm/s².
+            deceleration (int): Deceleration in mm/s².
+            pushing_force (int): Pushing force in % (0-100). Use 0 for positioning.
+            trigger_level (int): Trigger level in % (0-100).
+            pushing_speed (int): Pushing speed in mm/s.
+            moving_force (int): Moving force in % (0-300).
+            area1 (float): Area output end 1 in mm.
+            area2 (float): Area output end 2 in mm.
+            in_position (float): In-position tolerance in mm.
+
+        Returns:
+            list of int: A list of bytes representing the command data.
         """
 
         #convert distances from mm to 0.01 mm as int
@@ -248,8 +297,14 @@ class LECP6Serial:
 
     def process_response(self, cmd_name, response):
         """
-            Processes response into: LECP6Error, [CTRL_ID, FUNC, DATA, CRC]
-            VALID: 0 - no error, 1 - error detected, 2 - CRC16 mismatch
+        Process the response received from the controller.
+
+        Parameters:
+            cmd_name (str or LECP6CMD): The command name associated with the response.
+            response (str): The response received from the controller as a hexadecimal string.
+
+        Returns:
+            tuple: A tuple containing the response type (LECP6Response) and parsed response data.
         """
         if isinstance(cmd_name, LECP6CMD):
             cmd_name = cmd_name.value
@@ -284,6 +339,14 @@ class LECP6Serial:
             return LECP6Response.VALID, [CTRL_ID, FUNC, START, DATA, CRC16]
     
     def wait_till_X_set(self, byte_idx, bit, set_bit = True):
+        """
+        Wait until a specific input bit (X) is set or cleared.
+
+        Parameters:
+            byte_idx (int): The index of the byte to check in the input signal.
+            bit (int): The bit to check within the specified byte.
+            set_bit (bool): Whether to wait for the bit to be set (`True`) or cleared (`False`).
+        """
         while True:
             response = self.send_cmd("READ INPUTS")
             response_type, data = self.process_response("READ INPUTS", response)
@@ -312,6 +375,9 @@ class LECP6Serial:
         self.close()
 
     def close(self):
+        """
+        Close the serial connection and turn off the servo.
+        """
         if self.ser is not None:
             self.send_cmd("SERVO OFF")
 

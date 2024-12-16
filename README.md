@@ -29,7 +29,6 @@ lecp6.move_to(position=150)
 ```
 Object *LECP6Serial* parameters:
 
-port, bautrate = 38400, timeout = 0.1, CTRL_ID = 0x01
 
 |Parameter |Type   |Default |Description                                 |
 |----------|-------|--------|--------------------------------------------|
