@@ -175,6 +175,7 @@ class LECP6Serial:
         self.wait_till_X_set(1, X4B)
 
         self.send_cmd("HOME FINISHED")
+        self.move_to(position=0)
 
 
     def send_cmd(self, cmd_name, data = None):
@@ -223,20 +224,19 @@ class LECP6Serial:
         return response.hex()
 
     def move_to(self, movement_mode: int = 1, speed: int = 16, position: float = 0.00,
-                      acceleration : int = 3000, deceleration : int = 3000,
-                      pushing_force: int = 0, trigger_level: int = 0, pushing_speed: int = 16,
-                      moving_force: int = 100, area1: float = 0.00, area2: float = 0.00, in_position: float = 0.00,
-                      log : bool = False):
+            acceleration: int = 3000, deceleration: int = 3000, pushing_force: int = 0, trigger_level: int = 0,
+            pushing_speed: int = 16, moving_force: int = 100, area1: float = 0.00, area2: float = 0.00,
+            in_position: float = 0.00, log: bool = False, pre_log_points: int = 5, polling_interval: float = 0.01):
         """
-        Move the actuator to the specified position with the given parameters.
-            
+        Move the actuator to the specified position and optionally log position data.
+
         Parameters:
             movement_mode (int): Movement mode (`1` for absolute, `2` for relative).
             speed (int): Speed in mm/s (valid range: 16-500).
             position (float): Target position in mm.
             acceleration (int): Acceleration in mm/s².
             deceleration (int): Deceleration in mm/s².
-            pushing_force (int): Pushing force in % (0-100). Use 0 for positioning.
+            pushing_force (int): Pushing force in % (0-100).
             trigger_level (int): Trigger level in % (0-100).
             pushing_speed (int): Pushing speed in mm/s.
             moving_force (int): Moving force in % (0-300).
@@ -244,25 +244,39 @@ class LECP6Serial:
             area2 (float): Area output end 2 in mm.
             in_position (float): In-position tolerance in mm.
             log (bool): Whether to log positions and timestamps during movement.
+            pre_log_points (int): Number of points to log before movement starts.
+            polling_interval (float): Time interval (in seconds) between position readings.
         """
+        DATA = self.get_step_data(movement_mode, speed, position, acceleration, deceleration,
+                                pushing_force, trigger_level, pushing_speed, moving_force, area1, area2, in_position)
+
         if log:
             self.start_logging()
 
-        DATA = self.get_step_data(movement_mode, speed, position, acceleration, deceleration,
-                                  pushing_force, trigger_level, pushing_speed, moving_force, area1, area2, in_position)
+            # Log initial points before sending START
+            # print("Logging initial positions before movement starts...")
+            for _ in range(pre_log_points):
+                try:
+                    current_position = self.get_current_position()
+                    timestamp = time.time()
+                    self.position_log.append((timestamp, current_position, 0.0))
+                except ValueError as e:
+                    print(f"Error reading position: {e}")
+                time.sleep(polling_interval)
 
+        # Send the move commands
         self.send_cmd("SEND DATA", DATA)
         self.send_cmd("START")
 
+        # Monitor movement if logging is enabled
         if log:
-            moving_log = self.monitor_position_during_movement()
+            self.monitor_position_during_movement(polling_interval)
         else:
             self.wait_till_X_set(1, X4B)
 
         if log:
-            self.stop_logging()
+            return self.stop_logging()
 
-        return moving_log
 
     def get_step_data(self, movement_mode: int = 1, speed: int = 16, position: float = 0.00,
                       acceleration : int = 3000, deceleration : int = 3000,
@@ -379,31 +393,43 @@ class LECP6Serial:
             position_bytes = data[3]
             # Convert 4 bytes of position data to an integer
             position_raw = (position_bytes[0] << 24) | (position_bytes[1] << 16) | (position_bytes[2] << 8) | position_bytes[3]
+            
+            # Handle signed 32-bit integers
+            if position_raw & 0x80000000:  # Check if the value is negative
+                position_raw -= 0x100000000  # Convert to signed 32-bit integer
+            
             # Convert position to mm (from 0.01 mm resolution)
             return position_raw / 100.0
         else:
             raise ValueError(f"Invalid response: {response_type}, {data}")
 
-
-    def monitor_position_during_movement(self):
+    def monitor_position_during_movement(self, polling_interval: float = 0.05):
         """
         Monitor the actuator's position during movement.
 
-        Logs the position and timestamp if logging is enabled.
+        Logs the position and timestamp at fixed intervals.
+
+        Parameters:
+            polling_interval (float): Time interval (in seconds) between position readings.
 
         Returns:
-            list of tuple: The position log as (timestamp, position) pairs.
+            list of tuple: The position log as (timestamp, position, time_difference) tuples.
         """
-        print("Monitoring position...")
+        # print("Monitoring position...")
+        previous_timestamp = time.time()
+
         while True:
             try:
                 current_position = self.get_current_position()
+                current_timestamp = time.time()
+                time_diff = current_timestamp - previous_timestamp
+                previous_timestamp = current_timestamp
+
+                # Append timestamp, position, and time difference
+                self.position_log.append((current_timestamp, current_position, time_diff))
             except ValueError as e:
                 print(f"Error reading position: {e}")
                 break
-
-            # Log position and timestamp if logging is enabled
-            self.position_log.append((time.time(), current_position))
 
             # Check if the actuator has reached the target position
             response = self.send_cmd("READ INPUTS")
@@ -416,11 +442,10 @@ class LECP6Serial:
             else:
                 print("Error checking inputs:", response_type, data)
 
-            time.sleep(0.1)  # Adjust polling interval as needed
+            time.sleep(polling_interval)
 
+        # print("Position monitoring completed.")
         return self.position_log
-
-
 
     def wait_till_X_set(self, byte_idx, bit, set_bit = True):
         """
